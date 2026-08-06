@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ระบบบริหารจัดการข้อมูลนักเรียน โรงเรียนสามัคคีศรีวิชัย</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
+<style>
+  body { font-family: "Sarabun","Segoe UI",sans-serif; background:#f1f5f9; }
+  .card { background:#fff; border-radius:1rem; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .btn { display:inline-flex; align-items:center; gap:.4rem; border-radius:.6rem; padding:.55rem .9rem; font-size:.875rem; font-weight:600; transition:.15s; cursor:pointer; }
+  .btn-primary { background:#1d4ed8; color:#fff; }
+  .btn-primary:hover { background:#1e40af; }
+  .btn-secondary { background:#fff; border:1px solid #cbd5e1; color:#334155; }
+  .btn-secondary:hover { background:#f8fafc; }
+  .btn-amber { background:#d97706; color:#fff; }
+  .btn-amber:hover { background:#b45309; }
+  .input { width:100%; border:1px solid #cbd5e1; border-radius:.6rem; padding:.55rem .8rem; outline:none; background:#fff; }
+  .input:focus { border-color:#3b82f6; box-shadow:0 0 0 3px #dbeafe; }
+  .badge { display:inline-flex; align-items:center; border-radius:9999px; padding:.15rem .65rem; font-size:.72rem; font-weight:600; }
+  .drop-zone { border:2px dashed #93c5fd; border-radius:1rem; background:#eff6ff; transition:.15s; }
+  .drop-zone.dragover { background:#dbeafe; border-color:#2563eb; }
+  table th { position: sticky; top:0; background:#1d4ed8; color:#fff; }
+  ::-webkit-scrollbar { height:8px; width:8px; }
+  ::-webkit-scrollbar-thumb { background:#93c5fd; border-radius:4px; }
+  .pp5-table th, .pp5-table td { border:1px solid #94a3b8; padding:4px 6px; }
+  @media print {
+    body { background:#fff; }
+    .no-print { display:none !important; }
+    .print-only { display:block !important; }
+  }
+  .print-only { display:none; }
+</style>
+</head>
+<body>
+
+<div id="app" class="min-h-screen">
+
+  <header class="no-print bg-gradient-to-r from-blue-800 to-blue-600 text-white shadow-lg sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="bg-white/15 rounded-xl p-2"><i data-lucide="graduation-cap" class="w-7 h-7"></i></div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-bold leading-tight">ระบบบริหารจัดการข้อมูลนักเรียน</h1>
+          <p class="text-xs sm:text-sm text-blue-100">โรงเรียนสามัคคีศรีวิชัย · รหัสโรงเรียน 51020099 · ปีการศึกษา 2569</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 text-xs sm:text-sm">
+        <span class="bg-white/15 rounded-full px-3 py-1">นักเรียนในระบบ {{ students.length }} คน</span>
+        <nav class="flex bg-white/10 rounded-full p-1">
+          <button @click="tab='dashboard'" :class="tabBtn('dashboard')">แดชบอร์ด</button>
+          <button @click="tab='students'" :class="tabBtn('students')">รายชื่อนักเรียน</button>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <main class="no-print max-w-7xl mx-auto px-4 sm:px-6 py-5 space-y-6">
+
+    <section
+      class="drop-zone p-5 sm:p-6 text-center cursor-pointer"
+      :class="{ dragover: isDragOver }"
+      @dragover.prevent="isDragOver = true"
+      @dragleave.prevent="isDragOver = false"
+      @drop.prevent="handleDrop"
+      @click="$refs.fileInput.click()"
+    >
+      <input ref="fileInput" type="file" accept=".csv,text/csv" class="hidden" @change="handleFileSelect" />
+      <i data-lucide="upload-cloud" class="w-8 h-8 mx-auto text-blue-500 mb-2"></i>
+      <p class="font-semibold text-blue-800">ลากไฟล์ CSV มาวางที่นี้ หรือคลิกเพื่อเลือกไฟล์</p>
+      <p class="text-xs text-slate-500 mt-1">รองรับไฟล์รายงานข้อมูลนักเรียน (39 ฟิลด์) รูปแบบเดียวกับ 2569-1-student.csv</p>
+      <p v-if="importMessage" class="text-xs mt-2" :class="importError ? 'text-red-600' : 'text-green-600'">{{ importMessage }}</p>
+    </section>
+
+    <section v-show="tab==='dashboard'" class="space-y-6">
+      <div class="card p-4 flex flex-wrap items-center gap-3">
+        <i data-lucide="sliders-horizontal" class="w-4 h-4 text-blue-600"></i>
+        <select v-model="dashGradeFilter" class="input w-auto">
+          <option value="">ทุกระดับชั้น</option>
+          <option v-for="g in gradeOptions" :key="g" :value="g">{{ g }}</option>
+        </select>
+        <select v-model="dashGenderFilter" class="input w-auto">
+          <option value="">ทุกเพศ</option>
+          <option value="ช">ชาย</option>
+          <option value="ญ">หญิง</option>
+        </select>
+        <button v-if="dashGradeFilter || dashGenderFilter" @click="dashGradeFilter=''; dashGenderFilter=''" class="btn-secondary btn">
+          <i data-lucide="x" class="w-3.5 h-3.5"></i> ล้างตัวกรอง
+        </button>
+      </div>
+
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="card p-4">
+          <p class="text-xs text-slate-500">นักเรียนทั้งหมด</p>
+          <p class="text-2xl font-bold text-blue-700">{{ dashStats.total }}</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-xs text-slate-500">ชาย</p>
+          <p class="text-2xl font-bold text-sky-600">{{ dashStats.male }}</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-xs text-slate-500">หญิง</p>
+          <p class="text-2xl font-bold text-pink-500">{{ dashStats.female }}</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-xs text-slate-500">กลุ่มความด้อยโอกาส</p>
+          <p class="text-2xl font-bold text-amber-600">{{ dashStats.disadvantaged }}</p>
+        </div>
+      </div>
+
+      <div class="grid lg:grid-cols-2 gap-4">
+        <div class="card p-4">
+          <h3 class="font-bold text-slate-700 mb-2 text-sm">จำนวนนักเรียนแยกตามระดับชั้น</h3>
+          <canvas ref="gradeChart" height="220"></canvas>
+        </div>
+        <div class="card p-4">
+          <h3 class="font-bold text-slate-700 mb-2 text-sm">สัดส่วนความด้อยโอกาส</h3>
+          <canvas ref="disadvantageChart" height="220"></canvas>
+        </div>
+        <div class="card p-4 lg:col-span-2">
+          <h3 class="font-bold text-slate-700 mb-2 text-sm">อาชีพผู้ปกครอง 5 อันดับแรก</h3>
+          <canvas ref="occupationChart" height="180"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section v-show="tab==='students'" class="space-y-4">
+      <div class="card p-4 space-y-3">
+        <div class="flex flex-col sm:flex-row gap-3">
+          <label class="relative flex-1">
+            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-3 text-slate-400"></i>
+            <input v-model="search" placeholder="ค้นหาชื่อ นามสกุล เลขประจำตัว หรือระดับชั้น..." class="input pl-9" />
+          </label>
+          <div class="flex gap-2">
+            <button @click="exportCsv" class="btn btn-secondary"><i data-lucide="file-text" class="w-4 h-4"></i> CSV</button>
+            <button @click="exportExcel" class="btn btn-primary"><i data-lucide="sheet" class="w-4 h-4"></i> Excel</button>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <select v-model="filterGrade" class="input">
+            <option value="">ทุกระดับชั้น</option>
+            <option v-for="g in gradeOptions" :key="g" :value="g">{{ g }}</option>
+          </select>
+          <select v-model="filterRoom" class="input">
+            <option value="">ทุกห้อง</option>
+            <option v-for="r in roomOptions" :key="r" :value="r">ห้อง {{ r }}</option>
+          </select>
+          <select v-model="filterGender" class="input">
+            <option value="">ทุกเพศ</option>
+            <option value="ช">ชาย</option>
+            <option value="ญ">หญิง</option>
+          </select>
+          <select v-model="filterDisadvantage" class="input">
+            <option value="">ทุกกลุ่ม</option>
+            <option value="only">มีความด้อยโอกาส</option>
+            <option value="none">ไม่มี/ไม่ระบุ</option>
+          </select>
+        </div>
+        <p class="text-xs text-slate-500">แสดง {{ filteredStudents.length }} จาก {{ students.length }} คน</p>
+      </div>
+
+      <div class="card overflow-x-auto">
+        <table class="w-full text-sm min-w-[950px]">
+          <thead>
+            <tr>
+              <th class="px-3 py-2 text-left">เลกประจำตัว</th>
+              <th class="px-3 py-2 text-left">ชื่อ-สกุล</th>
+              <th class="px-3 py-2 text-left">ชั้น/ห้อง</th>
+              <th class="px-3 py-2 text-left">เพศ</th>
+              <th class="px-3 py-2 text-left">BMI</th>
+              <th class="px-3 py-2 text-left">ความด้อยโอกาส</th>
+              <th class="px-3 py-2 text-left">อาชีพผู้ปกครอง</th>
+              <th class="px-3 py-2 text-left">ปพ.5</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr v-for="s in pagedStudents" :key="s.studentId + s.nationalId" class="hover:bg-blue-50">
+              <td class="px-3 py-2 font-semibold text-blue-700 cursor-pointer" @click="openDetail(s)">{{ s.studentId }}</td>
+              <td class="px-3 py-2 cursor-pointer" @click="openDetail(s)">{{ s.prefix }}{{ s.firstName }} {{ s.lastName }}</td>
+              <td class="px-3 py-2">{{ s.grade }} / {{ s.room }}</td>
+              <td class="px-3 py-2">{{ s.gender === 'ช' ? 'ชาย' : (s.gender === 'ญ' ? 'หญิง' : safe(s.gender)) }}</td>
+              <td class="px-3 py-2">
+                <span class="badge" :class="bmiInfo(s).badgeClass">{{ bmiInfo(s).value ?? '-' }} · {{ bmiInfo(s).category }}</span>
+              </td>
+              <td class="px-3 py-2">{{ safe(s.disadvantage) }}</td>
+              <td class="px-3 py-2">{{ safe(s.guardianOccupation) }}</td>
+              <td class="px-3 py-2">
+                <button @click="openPp5(s)" class="btn btn-amber !py-1 !px-2 text-xs"><i data-lucide="file-edit" class="w-3.5 h-3.5"></i> ปพ.5</button>
+              </td>
+            </tr>
+            <tr v-if="filteredStudents.length === 0">
+              <td colspan="8" class="px-3 py-10 text-center text-slate-400">ไม่พบข้อมูลตามเงื่อนไขที่กำหนด</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex items-center justify-between text-sm" v-if="filteredStudents.length > pageSize">
+        <button @click="page = Math.max(1, page-1)" class="btn btn-secondary" :disabled="page===1">ก่อนหน้า</button>
+        <span>หน้า {{ page }} / {{ totalPages }}</span>
+        <button @click="page = Math.min(totalPages, page+1)" class="btn btn-secondary" :disabled="page===totalPages">ถดไป</button>
+      </div>
+    </section>
+  </main>
+
+  <div v-if="selected" class="no-print fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" @click.self="selected=null">
+    <div class="bg-white rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto shadow-2xl">
+      <div class="sticky top-0 bg-blue-700 text-white px-5 py-4 flex justify-between items-center rounded-t-2xl">
+        <div>
+          <p class="text-xs text-blue-200">รายละเอียดนักเรียน</p>
+          <h3 class="font-bold text-lg">{{ selected.prefix }}{{ selected.firstName }} {{ selected.lastName }}</h3>
+        </div>
+        <div class="flex items-center gap-2">
+          <button @click="openPp5(selected)" class="btn btn-amber !py-1.5"><i data-lucide="file-edit" class="w-4 h-4"></i> ปพ.5</button>
+          <button @click="selected=null" class="hover:bg-white/20 rounded-lg p-1"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+      </div>
+      <div class="p-5 space-y-5 text-sm">
+        <div>
+          <h4 class="font-bold text-blue-700 mb-2 flex items-center gap-1"><i data-lucide="id-card" class="w-4 h-4"></i> ข้อมูลส่วนตัว</h4>
+          <div class="grid sm:grid-cols-2 gap-1.5 text-slate-600">
+            <p>เลกประจำตัวนักเรียน: <b>{{ safe(selected.studentId) }}</b></p>
+            <p>เลกประจำตัวประชาชน: <b>{{ maskId(selected.nationalId) }}</b></p>
+            <p>ระดับชั้น/ห้อง: <b>{{ safe(selected.grade) }} / {{ safe(selected.room) }}</b></p>
+            <p>เพศ: <b>{{ selected.gender === 'ช' ? 'ชาย' : 'หญิง' }}</b></p>
+            <p>วันเกิด: <b>{{ safe(selected.birthDate) }}</b></p>
+            <p>อายุ: <b>{{ safe(selected.age) }} ปี</b></p>
+            <p>ศาสนา: <b>{{ safe(selected.religion) }}</b></p>
+            <p>สัญชาติ: <b>{{ safe(selected.nationality) }}</b></p>
+          </div>
+        </div>
+        <div>
+          <h4 class="font-bold text-blue-700 mb-2 flex items-center gap-1"><i data-lucide="heart-pulse" class="w-4 h-4"></i> ข้อมูลสุขภาพ</h4>
+          <div class="grid sm:grid-cols-2 gap-1.5 text-slate-600">
+            <p>น้ำหนัก: <b>{{ safe(selected.weight) }} กก.</b></p>
+            <p>ส่วนสูง: <b>{{ safe(selected.height) }} ซม.</b></p>
+            <p>กลุ่มเลือด: <b>{{ safe(selected.bloodType) }}</b></p>
+            <p>BMI: <b>{{ bmiInfo(selected).value ?? '-' }} ({{ bmiInfo(selected).category }})</b></p>
+          </div>
+        </div>
+        <div>
+          <h4 class="font-bold text-blue-700 mb-2 flex items-center gap-1"><i data-lucide="map-pin" class="w-4 h-4"></i> ที่อยู่</h4>
+          <p class="text-slate-600">{{ safe(selected.houseNo) }} หมู่ {{ safe(selected.moo) }} {{ safe(selected.street) }} ต.{{ safe(selected.subdistrict) }} อ.{{ safe(selected.district) }} จ.{{ safe(selected.province) }}</p>
+        </div>
+        <div>
+          <h4 class="font-bold text-blue-700 mb-2 flex items-center gap-1"><i data-lucide="users" class="w-4 h-4"></i> ข้อมูลผู้ปกครอง</h4>
+          <div class="grid sm:grid-cols-2 gap-1.5 text-slate-600">
+            <p>ผู้ปกครอง: <b>{{ safe(selected.guardianPrefix) }}{{ safe(selected.guardianFirstName) }} {{ safe(selected.guardianLastName) }}</b></p>
+            <p>อาชีพ: <b>{{ safe(selected.guardianOccupation) }}</b> ({{ safe(selected.guardianRelation) }})</p>
+            <p>บิดา: <b>{{ safe(selected.fatherPrefix) }}{{ safe(selected.fatherFirstName) }} {{ safe(selected.fatherLastName) }}</b> - {{ safe(selected.fatherOccupation) }}</p>
+            <p>มารดา: <b>{{ safe(selected.motherPrefix) }}{{ safe(selected.motherFirstName) }} {{ safe(selected.motherLastName) }}</b> - {{ safe(selected.motherOccupation) }}</p>
+          </div>
+        </div>
+        <div>
+          <h4 class="font-bold text-blue-700 mb-2 flex items-center gap-1"><i data-lucide="shield-alert" class="w-4 h-4"></i> สวัสดิการ</h4>
+          <p class="text-slate-600">สถานะความด้อยโอกาส: <b>{{ safe(selected.disadvantage) }}</b></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="pp5Target" class="no-print fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" @click.self="closePp5">
+    <div class="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+      <div class="sticky top-0 bg-amber-600 text-white px-5 py-4 flex justify-between items-center rounded-t-2xl">
+        <div>
+          <p class="text-xs text-amber-100">ปพ.5 · แบบบันทึกผลการพัฒนาคุณภาพผู้เรียน</p>
+          <h3 class="font-bold text-lg">{{ pp5Target.prefix }}{{ pp5Target.firstName }} {{ pp5Target.lastName }} · {{ pp5Target.grade }}/{{ pp5Target.room }}</h3>
+        </div>
+        <button @click="closePp5" class="hover:bg-white/20 rounded-lg p-1"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+
+      <div class="p-5 space-y-6 text-sm">
+        <div>
+          <h4 class="font-bold text-amber-700 mb-2 flex items-center gap-1"><i data-lucide="calendar-check" class="w-4 h-4"></i> สรุปเวลาเรียน (วัน)</h4>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <label class="text-xs text-slate-500">มาเรียน (วัน)
+              <input type="number" min="0" v-model.number="pp5Record.attendance.present" class="input mt-1" />
+            </label>
+            <label class="text-xs text-slate-500">ลาป่วย (วัน)
+              <input type="number" min="0" v-model.number="pp5Record.attendance.sick" class="input mt-1" />
+            </label>
+            <label class="text-xs text-slate-500">ลากิจ (วัน)
+              <input type="number" min="0" v-model.number="pp5Record.attendance.leave" class="input mt-1" />
+            </label>
+            <label class="text-xs text-slate-500">ขาดเรียน (วัน)
+              <input type="number" min="0" v-model.number="pp5Record.attendance.absent" class="input mt-1" />
+            </label>
+          </div>
+          <p class="text-xs text-slate-500 mt-2">รวมเวลามาเรียน {{ attendanceSummary.totalPresent }} วัน จากทั้งหมด {{ attendanceSummary.totalDays }} วัน คิดเป็น <b>{{ attendanceSummary.percent }}%</b></p>
+        </div>
+
+        <div>
+          <h4 class="font-bold text-amber-700 mb-2 flex items-center gap-1"><i data-lucide="book-open-check" class="w-4 h-4"></i> ผลการประเมินรายวิชา</h4>
+          <div class="overflow-x-auto">
+            <table class="pp5-table w-full text-xs">
+              <thead class="bg-amber-50">
+                <tr>
+                  <th class="text-left">รายวิชา</th>
+                  <th class="w-24">คะแนน (0-100)</th>
+                  <th class="w-24">ระดับผลการเรียน</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(subj, idx) in pp5Record.subjects" :key="idx">
+                  <td><input v-model="subj.name" class="input !py-1" /></td>
+                  <td><input type="number" min="0" max="100" v-model.number="subj.score" class="input !py-1 text-center" /></td>
+                  <td class="text-center font-semibold">{{ scoreToGrade(subj.score) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="text-xs text-slate-500 mt-2">เกณฑ์ระดับผลการเรียน: 80-100=4, 75-79=3.5, 70-74=3, 65-69=2.5, 60-64=2, 55-59=1.5, 50-54=1, 0-49=0</p>
+        </div>
+
+        <div>
+          <h4 class="font-bold text-amber-700 mb-2 flex items-center gap-1"><i data-lucide="star" class="w-4 h-4"></i> การประเมินคุนลักษณะอันพึงประสงค์</h4>
+          <div class="grid sm:grid-cols-2 gap-2">
+            <div v-for="(item, idx) in pp5Record.characteristics" :key="idx" class="flex items-center justify-between border rounded-lg px-3 py-2">
+              <span class="text-slate-600">{{ item.name }}</span>
+              <select v-model="item.result" class="input w-32 !py-1">
+                <option>ดีเยี่ยม</option>
+                <option>ดี</option>
+                <option>ผ่าน</option>
+                <option>ไม่ผ่าน</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label class="text-xs text-slate-500">บันทึกเพจาิมเตียมของผู้สอน</label>
+          <textarea v-model="pp5Record.remark" rows="2" class="input mt-1" placeholder="ข้อสังเกต/ข้อเสนอแนะเพิ่มเติม..."></textarea>
+        </div>
+      </div>
+
+      <div class="sticky bottom-0 bg-slate-50 border-t px-5 py-4 flex flex-wrap justify-end gap-2">
+        <button @click="closePp5" class="btn btn-secondary">ปิด</button>
+        <button @click="savePp5" class="btn btn-primary"><i data-lucide="save" class="w-4 h-4"></i> บันทึกข้อมูล ปพ.5</button>
+        <button @click="printPp5" class="btn btn-amber"><i data-lucide="printer" class="w-4 h-4"></i> พิมพ์ ปพ.5</button>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="pp5Target" class="print-only p-8 text-sm" style="font-family:'Sarabun',sans-serif;">
+    <div class="text-center mb-4">
+      <h2 class="text-lg font-bold">แบบบันทึกผลการพัฒนาคุณภาพผู้เรียน (ปพ.5)</h2>
+      <p>โรงเรียนสามัคคีศรีวิชัย รหัสโรงเรียน 51020099 · ปีการศึกษา 2569</p>
+    </div>
+    <table class="w-full mb-4">
+      <tr>
+        <td class="py-1"><b>ชื่อ-สกุล:</b> {{ pp5Target.prefix }}{{ pp5Target.firstName }} {{ pp5Target.lastName }}</td>
+        <td class="py-1"><b>เลกประจำตัว:</b> {{ safe(pp5Target.studentId) }}</td>
+      </tr>
+      <tr>
+        <td class="py-1"><b>ระดับชั้น/ห้อง:</b> {{ safe(pp5Target.grade) }} / {{ safe(pp5Target.room) }}</td>
+        <td class="py-1"><b>เพศ:</b> {{ pp5Target.gender === 'ช' ? 'ชาย' : 'หญิง' }}</td>
+      </tr>
+    </table>
+
+    <h3 class="font-bold mb-1">1. สรุปเวลาเรียน</h3>
+    <table class="pp5-table w-full mb-4 text-center">
+      <thead><tr><th>มาเรียน</th><th>ลาป่วย</th><th>ลากิจ</th><th>ขาดเรียน</th><th>รวมวันเรียน</th><th>ร้อยละเวลาเรียน</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>{{ pp5Record.attendance.present }}</td>
+          <td>{{ pp5Record.attendance.sick }}</td>
+          <td>{{ pp5Record.attendance.leave }}</td>
+          <td>{{ pp5Record.attendance.absent }}</td>
+          <td>{{ attendanceSummary.totalDays }}</td>
+          <td>{{ attendanceSummary.percent }}%</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 class="font-bold mb-1">2. ผลการประเมินรายวิชา</h3>
+    <table class="pp5-table w-full mb-4">
+      <thead><tr><th class="text-left">รายวิชา</th><th>คะแนน</th><th>ระดับผลการเรียน</th></tr></thead>
+      <tbody>
+        <tr v-for="(subj, idx) in pp5Record.subjects" :key="'p'+idx">
+          <td>{{ subj.name }}</td>
+          <td class="text-center">{{ subj.score }}</td>
+          <td class="text-center">{{ scoreToGrade(subj.score) }}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 class="font-bold mb-1">3. คุนลักษณะอันพึงประสงค์</h3>
+    <table class="pp5-table w-full mb-6">
+      <thead><tr><th class="text-left">คุนลักษณะ</th><th>ผลการประเมิน</th></tr></thead>
+      <tbody>
+        <tr v-for="(item, idx) in pp5Record.characteristics" :key="'c'+idx">
+          <td>{{ item.name }}</td>
+          <td class="text-center">{{ item.result }}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p class="mb-8"><b>บันทึกเพจาิมเตียม:</b> {{ pp5Record.remark || '-' }}</p>
+
+    <div class="grid grid-cols-2 gap-8 mt-10 text-center">
+      <div>
+        <p>ลงชื่อ..........................................ครูประจำชั้น</p>
+        <p class="mt-1">( .......................................... )</p>
+      </div>
+      <div>
+        <p>ลงชื่อ..........................................ผู้บริหารสถานศึกษา</p>
+        <p class="mt-1">( .......................................... )</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const FIELD_KEYS = [
+  "schoolId","schoolName","nationalId","grade","room","studentId","gender","prefix",
+  "firstName","lastName","birthDate","age","weight","height","bloodType","religion",
+  "ethnicity","nationality","houseNo","moo","street","subdistrict","district","province",
+  "guardianPrefix","guardianFirstName","guardianLastName","guardianOccupation","guardianRelation",
+  "fatherPrefix","fatherFirstName","fatherLastName","fatherOccupation",
+  "motherPrefix","motherFirstName","motherLastName","motherOccupation",
+  "disadvantage","dischargeStatus"
+];
+
+const GRADE_ORDER = ["อ.1","อ.2","อ.3","ป.1","ป.2","ป.3","ป.4","ป.5","ป.6","ม.1","ม.2","ม.3"];
+
+const DEFAULT_SUBJECTS = ["ภาษาไทย","คณิตศาสตร์","วิทยาศาสตร์และเทคโนโลยี","สังคมศึกษา ศาสนา และวัฒนธรรม","สุขศึกษาและพลศึกษา","ศิลปะ","การงานอาชีพ","ภาษาต่างประเทศ (อังกฤษ)"];
+
+const DEFAULT_CHARACTERISTICS = ["รักชาติ ศาสน์ กษัตริย์","ซื่อสัตย์สุจริต","มีวินัย","ใฝ่เรียนรู้","อยู่อย่างพอเพียง","มุ่งมี่นในการทำงาน","รักความเป็นไทย","มีจิตสาธารฐ"];
+
+const PP5_STORAGE_KEY = "samakkhi-pp5-records-v1";
+
+const DEMO_ROWS = [
+  ["51020099","สามัคคีศรีวิชัย","1500000000001","อ.2","1","9001","ช","เด็กชาย","ตัวอย่าง","ทดสอบหนึ่ง","01/01/2564","5","17","105","-","พุทธ","ไทย","ไทย","1","1","-","ทุ่งหัวช้าง","ทุ่งหัวช้าง","ลำพูน","นาง","สมมติ","ทดสอบหนึ่ง","เกษตรกรรม","มารดา","นาย","สมมติ","ทดสอบหนึ่ง","เกษตรกรรม","นาง","สมมติ","ทดสอบหนึ่ง","เกษตรกรรม","เด็กยากจน","-"],
+  ["51020099","สามัคคีศรีวิชัย","1500000000002","ป.3","1","9002","ญ","เด็กหญิง","ตัวอย่าง","ทดสอบสอง","02/02/2560","9","28","130","-","พุทธ","ไทย","ไทย","2","2","-","ทุ่งหัวช้าง","ทุ่งหัวช้าง","ลำพูน","นาย","สมมติ","ทดสอบสอง","รับจ้าง","บิดา","นาย","สมมติ","ทดสอบสอง","รับจ้าง","นาง","สมมติ","ทดสอบสอง","ค้าขาย","-","-"],
+  ["51020099","สามัคคีศรีวิชัย","1500000000003","ม.3","1","9003","ช","เด็กชาย","ตัวอย่าง","ทดสอบสาม","03/03/2554","15","55","165","-","พุทธ","ไทย","ไทย","3","3","-","ทุ่งหัวช้าง","ทุ่งหัวช้าง","ลำพูน","นาง","สมมติ","ทดสอบสาม","ค้าขาย","มารดา","นาย","สมมติ","ทดสอบสาม","รับจ้าง","นาง","สมมติ","ทดสอบสาม","ค้าขาย","เด็กยากจน","-"],
+];
+
+function rowToStudent(cells) {
+  const obj = {};
+  FIELD_KEYS.forEach((key, i) => { obj[key] = (cells[i] ?? "-").toString().trim() || "-"; });
+  return obj;
+}
+
+function defaultPp5Record() {
+  return {
+    attendance: { present: 0, sick: 0, leave: 0, absent: 0 },
+    subjects: DEFAULT_SUBJECTS.map(name => ({ name, score: 0 })),
+    characteristics: DEFAULT_CHARACTERISTICS.map(name => ({ name, result: "ดี" })),
+    remark: "",
+  };
+}
+
+const { createApp, ref, reactive, computed, onMounted, watch, nextTick } = Vue;
+
+createApp({
+  setup() {
+    const students = ref(DEMO_ROWS.map(rowToStudent));
+    const tab = ref("dashboard");
+    const isDragOver = ref(false);
+    const importMessage = ref("");
+    const importError = ref(false);
+
+    const search = ref("");
+    const filterGrade = ref("");
+    const filterRoom = ref("");
+    const filterGender = ref("");
+    const filterDisadvantage = ref("");
+    const page = ref(1);
+    const pageSize = 15;
+
+    const dashGradeFilter = ref("");
+    const dashGenderFilter = ref("");
+
+    const selected = ref(null);
+
+    const pp5Store = reactive(loadPp5Store());
+    const pp5Target = ref(null);
+    const pp5Record = ref(defaultPp5Record());
+
+    function loadPp5Store() {
+      try {
+        const saved = localStorage.getItem(PP5_STORAGE_KEY);
+        return saved ? JSON.parse(saved) : {};
+      } catch { return {}; }
+    }
+    const persistPp5Store = () => localStorage.setItem(PP5_STORAGE_KEY, JSON.stringify(pp5Store));
+
+    const openPp5 = (s) => {
+      pp5Target.value = s;
+      const key = s.studentId + "_" + s.nationalId;
+      pp5Record.value = pp5Store[key] ? JSON.parse(JSON.stringify(pp5Store[key])) : defaultPp5Record();
+      nextTick(() => lucide.createIcons());
+    };
+    const closePp5 = () => { pp5Target.value = null; };
+    const savePp5 = () => {
+      const key = pp5Target.value.studentId + "_" + pp5Target.value.nationalId;
+      pp5Store[key] = JSON.parse(JSON.stringify(pp5Record.value));
+      persistPp5Store();
+      importMessage.value = "";
+      alert("บันทึกข้อมูล ปพ.5 ของ " + pp5Target.value.firstName + " " + pp5Target.value.lastName + " เรียบร้อยแล้ว");
+    };
+    const printPp5 = () => {
+      savePp5();
+      nextTick(() => window.print());
+    };
+
+    const scoreToGrade = (score) => {
+      const s = parseFloat(score);
+      if (isNaN(s)) return "-";
+      if (s >= 80) return "4";
+      if (s >= 75) return "3.5";
+      if (s >= 70) return "3";
+      if (s >= 65) return "2.5";
+      if (s >= 60) return "2";
+      if (s >= 55) return "1.5";
+      if (s >= 50) return "1";
+      return "0";
+    };
+
+    const attendanceSummary = computed(() => {
+      const a = pp5Record.value.attendance;
+      const totalPresent = Number(a.present) || 0;
+      const totalDays = totalPresent + (Number(a.sick)||0) + (Number(a.leave)||0) + (Number(a.absent)||0);
+      const percent = totalDays > 0 ? Math.round((totalPresent / totalDays) * 1000) / 10 : 0;
+      return { totalPresent, totalDays, percent };
+    });
+
+    let gradeChartInstance, disadvantageChartInstance, occupationChartInstance;
+
+    const safe = (v) => (!v || v === "-" || v === "0") ? "ไม่มีข้อมูลในระบบ" : v;
+
+    const maskId = (id) => {
+      if (!id || id === "-" ) return "ไม่มีข้อมูลในระบบ";
+      const digits = String(id).replace(/\D/g, "");
+      if (digits.length !== 13) return "X-XXXX-XXXXX-XX-X";
+      return digits[0] + "-" + digits.slice(1,5) + "-XXXXX-XX-X";
+    };
+
+    const bmiInfo = (s) => {
+      const w = parseFloat(s.weight);
+      const h = parseFloat(s.height);
+      if (!w || !h) return { value: null, category: "ไม่มีข้อมูล", badgeClass: "bg-slate-100 text-slate-500" };
+      const m = h / 100;
+      const bmi = Math.round((w / (m * m)) * 10) / 10;
+      let category = "ปกติ", badgeClass = "bg-green-100 text-green-700";
+      if (bmi < 18.5) { category = "ผอม"; badgeClass = "bg-sky-100 text-sky-700"; }
+      else if (bmi < 23) { category = "ปกติ"; badgeClass = "bg-green-100 text-green-700"; }
+      else if (bmi < 25) { category = "เริ่มอ้วน"; badgeClass = "bg-amber-100 text-amber-700"; }
+      else { category = "อ้วน"; badgeClass = "bg-red-100 text-red-700"; }
+      return { value: bmi, category, badgeClass };
+    };
+
+    const sortGrades = (arr) => arr.sort((a,b) => GRADE_ORDER.indexOf(a) - GRADE_ORDER.indexOf(b));
+
+    const gradeOptions = computed(() => sortGrades([...new Set(students.value.map(s => s.grade))].filter(Boolean)));
+    const roomOptions = computed(() => [...new Set(students.value.map(s => s.room))].filter(Boolean).sort());
+
+    const parseCsvContent = (text) => {
+      const result = Papa.parse(text, { header: false, skipEmptyLines: true });
+      let rows = result.data;
+      rows = rows.filter(r => r.length >= 30);
+      rows = rows.filter(r => !String(r[0]).includes("วันและเวลาที่สร้างรายงาน") && r[0] !== "รหัสโรงเรียน");
+      return rows.map(rowToStudent);
+    };
+
+    const importCsvText = (text, filename) => {
+      try {
+        const parsed = parseCsvContent(text);
+        if (!parsed.length) {
+          importError.value = true;
+          importMessage.value = "ไม่พบข้อมูลนักเรียนในไฟล์ที่อัปโหลด กรุสอบรูปแบบไฟล์";
+          return;
+        }
+        students.value = parsed;
+        page.value = 1;
+        importError.value = false;
+        importMessage.value = "นำเข้าข้อมูลสำเร็จ " + parsed.length + " รายการ จากไฟล์ " + filename;
+        nextTick(renderCharts);
+      } catch (e) {
+        importError.value = true;
+        importMessage.value = "เกิดข้อผิดพลาดระหว่างอ่านไฟล์: " + e.message;
+      }
+    };
+
+    const readFile = (file) => {
+      const reader = new FileReader();
+      reader.onload = () => importCsvText(String(reader.result), file.name);
+      reader.readAsText(file, "UTF-8");
+    };
+
+    const handleFileSelect = (e) => { const f = e.target.files[0]; if (f) readFile(f); e.target.value = ""; };
+    const handleDrop = (e) => {
+      isDragOver.value = false;
+      const f = e.dataTransfer.files[0];
+      if (f) readFile(f);
+    };
+
+    const filteredStudents = computed(() => {
+      const q = search.value.trim().toLowerCase();
+      return students.value.filter(s => {
+        if (filterGrade.value && s.grade !== filterGrade.value) return false;
+        if (filterRoom.value && s.room !== filterRoom.value) return false;
+        if (filterGender.value && s.gender !== filterGender.value) return false;
+        if (filterDisadvantage.value === "only" && (!s.disadvantage || s.disadvantage === "-")) return false;
+        if (filterDisadvantage.value === "none" && s.disadvantage && s.disadvantage !== "-") return false;
+        if (!q) return true;
+        const text = (s.studentId + " " + s.firstName + " " + s.lastName + " " + s.grade).toLowerCase();
+        return text.includes(q);
+      });
+    });
+
+    const totalPages = computed(() => Math.max(1, Math.ceil(filteredStudents.value.length / pageSize)));
+    const pagedStudents = computed(() => {
+      const start = (page.value - 1) * pageSize;
+      return filteredStudents.value.slice(start, start + pageSize);
+    });
+    watch(filteredStudents, () => { page.value = 1; });
+
+    const dashFilteredStudents = computed(() => students.value.filter(s => {
+      if (dashGradeFilter.value && s.grade !== dashGradeFilter.value) return false;
+      if (dashGenderFilter.value && s.gender !== dashGenderFilter.value) return false;
+      return true;
+    }));
+
+    const dashStats = computed(() => {
+      const list = dashFilteredStudents.value;
+      return {
+        total: list.length,
+        male: list.filter(s => s.gender === "ช").length,
+        female: list.filter(s => s.gender === "ญ").length,
+        disadvantaged: list.filter(s => s.disadvantage && s.disadvantage !== "-").length,
+      };
+    });
+
+    const gradeChart = ref(null);
+    const disadvantageChart = ref(null);
+    const occupationChart = ref(null);
+
+    const renderCharts = () => {
+      const list = dashFilteredStudents.value;
+      const grades = sortGrades([...new Set(list.map(s => s.grade))].filter(Boolean));
+      const maleCounts = grades.map(g => list.filter(s => s.grade === g && s.gender === "ช").length);
+      const femaleCounts = grades.map(g => list.filter(s => s.grade === g && s.gender === "ญ").length);
+
+      if (gradeChartInstance) gradeChartInstance.destroy();
+      gradeChartInstance = new Chart(gradeChart.value, {
+        type: "bar",
+        data: { labels: grades, datasets: [
+          { label: "ชาย", data: maleCounts, backgroundColor: "#38bdf8" },
+          { label: "หญิง", data: femaleCounts, backgroundColor: "#f472b6" },
+        ]},
+        options: { responsive: true, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } },
+      });
+
+      const disCount = list.filter(s => s.disadvantage && s.disadvantage !== "-").length;
+      const okCount = list.length - disCount;
+      if (disadvantageChartInstance) disadvantageChartInstance.destroy();
+      disadvantageChartInstance = new Chart(disadvantageChart.value, {
+        type: "doughnut",
+        data: { labels: ["มีความด้อยโอกาส", "ไม่มี/ไม่ระบุ"], datasets: [{ data: [disCount, okCount], backgroundColor: ["#f59e0b", "#cbd5e1"] }] },
+        options: { responsive: true },
+      });
+
+      const occCounts = {};
+      list.forEach(s => {
+        const occ = s.guardianOccupation && s.guardianOccupation !== "-" ? s.guardianOccupation : null;
+        if (occ) occCounts[occ] = (occCounts[occ] || 0) + 1;
+      });
+      const topOcc = Object.entries(occCounts).sort((a,b) => b[1]-a[1]).slice(0,5);
+      if (occupationChartInstance) occupationChartInstance.destroy();
+      occupationChartInstance = new Chart(occupationChart.value, {
+        type: "bar",
+        data: { labels: topOcc.map(o => o[0]), datasets: [{ label: "จำนวนผู้ปกครอง", data: topOcc.map(o => o[1]), backgroundColor: "#1d4ed8" }] },
+        options: { indexAxis: "y", responsive: true, plugins: { legend: { display: false } } },
+      });
+    };
+
+    watch([dashGradeFilter, dashGenderFilter, students], () => nextTick(renderCharts));
+
+    const csvEscape = (v) => '"' + String(v ?? "").replaceAll('"', '""') + '"';
+    const exportCsv = () => {
+      const headers = FIELD_KEYS;
+      const rows = filteredStudents.value.map(s => headers.map(h => csvEscape(s[h])).join(","));
+      const csv = "\uFEFF" + headers.map(csvEscape).join(",") + "\r\n" + rows.join("\r\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "students-export-" + Date.now() + ".csv"; a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    const exportExcel = () => {
+      const rows = filteredStudents.value.map(s => {
+        const out = {};
+        FIELD_KEYS.forEach(k => out[k] = s[k]);
+        return out;
+      });
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Students");
+      XLSX.writeFile(wb, "students-export-" + Date.now() + ".xlsx");
+    };
+
+    const openDetail = (s) => { selected.value = s; };
+
+    const tabBtn = (name) => [
+      "px-3 py-1 rounded-full transition",
+      tab.value === name ? "bg-white text-blue-700 font-semibold" : "text-white/80",
+    ];
+
+    onMounted(() => {
+      lucide.createIcons();
+      nextTick(renderCharts);
+    });
+
+    watch([tab, students, selected, pp5Target], () => nextTick(() => lucide.createIcons()));
+
+    return {
+      students, tab, isDragOver, importMessage, importError,
+      search, filterGrade, filterRoom, filterGender, filterDisadvantage,
+      page, pageSize, totalPages, pagedStudents, filteredStudents,
+      dashGradeFilter, dashGenderFilter, dashStats,
+      gradeOptions, roomOptions,
+      gradeChart, disadvantageChart, occupationChart,
+      selected, openDetail, safe, maskId, bmiInfo,
+      handleFileSelect, handleDrop, exportCsv, exportExcel, tabBtn,
+      pp5Target, pp5Record, openPp5, closePp5, savePp5, printPp5, scoreToGrade, attendanceSummary,
+    };
+  },
+}).mount("#app");
+</script>
+</body>
+</html>
