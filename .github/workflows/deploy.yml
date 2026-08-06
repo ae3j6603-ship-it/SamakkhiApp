@@ -25,10 +25,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "npm"
 
-      - name: ติดตั้ง Dependencies
-        run: npm ci
+      - name: ติดตั้ง Dependencies (ยังไม่มี package-lock.json จึงใช้ npm install)
+        run: npm install
 
       - name: Build โปรเจกต์ด้วย Vite
         run: npm run build
